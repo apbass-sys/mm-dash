@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<link rel="manifest" href="manifest.json"><title>Market Monitor</title>
+<style>
+ :root{--bg:#0f1115;--card:#171a21;--ink:#e8e8e8;--dim:#8a8f98;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff}
+ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 12px 40px}
+ h1{font-size:18px;margin:6px 0 10px;display:flex;justify-content:space-between;align-items:center}
+ .card{background:var(--card);border-radius:12px;padding:12px 14px;margin:10px 0;box-shadow:0 1px 0 #000}
+ .card h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
+ .kv{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #22262e;font-size:14px}
+ .kv:last-child{border:0}.kv b{color:var(--dim);font-weight:500}
+ .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.acc{color:var(--acc)}
+ pre{white-space:pre-wrap;font:12px/1.4 ui-monospace,Menlo,monospace;color:#c9d1d9;margin:0}
+ .row{display:flex;gap:8px;flex-wrap:wrap}.pill{background:#22262e;border-radius:999px;padding:3px 10px;font-size:12px}
+ input{width:100%;box-sizing:border-box;background:#0f1115;color:var(--ink);border:1px solid #333;border-radius:8px;padding:10px;font-size:14px}
+ button{background:var(--acc);color:#000;border:0;border-radius:8px;padding:10px 14px;font-weight:600;margin-top:8px}
+ small{color:var(--dim)}
+</style></head><body>
+<h1>Market Monitor <small id="clock"></small></h1>
+<div id="setup" class="card">
+  <h2>Connect</h2>
+  <p><small>Read-only GitHub token (Contents: read, this repo only). Stored on this device only.</small></p>
+  <input id="tok" placeholder="github_pat_..."><input id="repo" value="apbass-sys/market-monitor" style="margin-top:8px">
+  <button onclick="save()">Connect</button>
+</div>
+<div id="app"></div>
+<script>
+window.onerror=function(m){var a=document.getElementById('app');if(a)a.innerHTML='<div class="card"><span class="bad">Script error: '+m+'</span></div>';};
+const K='mm_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||'null');}catch(e){cfg=null;}
+function save(){cfg={tok:document.getElementById('tok').value.trim(),repo:document.getElementById('repo').value.trim()};localStorage.setItem(K,JSON.stringify(cfg));document.getElementById('setup').style.display='none';refresh();}
+if(cfg&&cfg.tok){document.getElementById('setup').style.display='none';}
+async function gh(path){const r=await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}?ref=main`,{headers:{Authorization:`Bearer ${cfg.tok}`,Accept:'application/vnd.github+json'},cache:'no-store'});if(!r.ok)throw new Error(path+' '+r.status);const j=await r.json();return decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));}
+async function jget(p){try{return JSON.parse(await gh(p));}catch(e){return null;}}
+async function tget(p){try{return await gh(p);}catch(e){return '';}}
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const cls=st=>st==='ALARM'?'bad':st==='WARNING'?'warn':st==='WATCH'?'warn':'ok';
+let lastTrig='';
+async function refresh(){
+ if(!cfg)return;const app=document.getElementById('app');app.innerHTML='<div class="card"><small>loading…</small></div>';
+ try{
+  const [cw,tr,rp,co,sp,ch,dyn,arena,memo,strat,runs]=await Promise.all([jget('history/crash_watch.json'),jget('history/triggers.json'),jget('trader/rule_params.json'),jget('history/coefficients.json'),jget('history/stop_plan.json'),jget('shadow/changes.json'),jget('shadow/arms_dynamic.json'),tget('shadow/arena_report.md'),tget('history/self_memo_latest.md'),tget('history/strategist_log.md'),tget('history/runs.jsonl')]);
+  const lastRun=(()=>{try{const l=runs.trim().split('\n');return JSON.parse(l[l.length-1]);}catch(e){return {};}})();
+  const wl=lastRun.watchlist||[];const c5=wl.filter(w=>w.stance==='bullish'&&+w.conviction>=5).map(w=>w.ticker);
+  const arenaLines=arena.split('\n').filter(l=>l.startsWith('- '));const sel=arena.split('\n').filter(l=>l.includes('PROMOTABLE'));
+  const memoLine=(memo.split('\n')[1]||'').replace('graded episodes (20d):','episodes');
+  const trials=(ch||[]).filter(c=>c.status==='trial');const hyps=Object.entries(dyn||{}).filter(([k,v])=>v.searched&&!v.retired).map(([k])=>k);
+  const cur=JSON.stringify(tr||{});if(lastTrig&&cur!==lastTrig&&tr&&tr.actionable&&'Notification'in window&&Notification.permission==='granted'){new Notification('Market Monitor trigger',{body:(tr.new_conviction5_buys||[]).join(', ')||'actionable event'});}lastTrig=cur;
+  app.innerHTML=`
+  <div class="card"><h2>Stress</h2><div class="kv"><b>State</b><span class="${cls(cw?.state)}">${esc(cw?.state||'n/a')} (${esc(cw?.composite??'?')})</span></div>
+   <div class="kv"><b>Crash / Stress / Recession</b><span>${esc(cw?.scores?.crash)} / ${esc(cw?.scores?.stress)} / ${esc(cw?.scores?.recession)}</span></div>
+   ${cw?.shift_request?`<pre class="warn">${esc(cw.shift_request)}</pre>`:''}<div class="kv"><b>Triggers</b><span class="${tr?.actionable?'warn':'ok'}">${tr?.actionable?'ACTIONABLE':'none'}</span></div>
+   ${tr?.new_conviction5_buys?.length?`<div class="kv"><b>New 5-star</b><span class="acc">${esc(tr.new_conviction5_buys.join(', '))}</span></div>`:''}
+   ${tr?.thesis_breaks?.length?`<div class="kv"><b>Thesis breaks</b><span class="bad">${esc(tr.thesis_breaks.join(', '))}</span></div>`:''}</div>
+  <div class="card"><h2>Latest run</h2><div class="kv"><b>${esc(lastRun.run_type||'')}</b><span>${esc(lastRun.ts||'')}</span></div>
+   <div class="kv"><b>Prompt</b><span>${esc(lastRun.prompt_version||'')}</span></div><div class="kv"><b>Regime</b><span>${lastRun.regime?.risk_on?'<span class="ok">ON</span>':'<span class="bad">OFF</span>'}</span></div>
+   <div class="kv"><b>5-star bullish</b><span class="acc">${esc(c5.join(', ')||'none')}</span></div><div class="kv"><b>Calls</b><span>${wl.length}</span></div></div>
+  <div class="card"><h2>Learning</h2><div class="kv"><b>Graded 20d</b><span>${esc(co?.n??'?')}</span></div><div class="kv"><b>Mean 20d alpha vs SPY</b><span class="${(co?.mean_alpha||0)>0?'ok':'bad'}">${co?((co.mean_alpha*100).toFixed(2)+'%'):'?'}</span></div>
+   <div class="kv"><b>Memo</b><span>${esc(memoLine)}</span></div><div class="kv"><b>Hypotheses in test</b><span>${esc(hyps.join(', ')||'none')}</span></div></div>
+  <div class="card"><h2>Rules in force</h2><div class="row"><span class="pill">params ${esc(rp?.version||'default')}${rp?.frozen?' FROZEN':''}</span><span class="pill">stops T ${((rp?.stop_t??.07)*100).toFixed(0)}% / A ${((rp?.stop_a??.15)*100).toFixed(0)}%</span><span class="pill">cap ${((rp?.cap_pct??.12)*100).toFixed(0)}%</span><span class="pill">conv ≥${esc(rp?.conv_min??5)}</span><span class="pill">${esc(rp?.objective||'growth')}</span><span class="pill">kelly ${esc(rp?.kelly_fraction??.35)}</span><span class="pill">discretion ${rp?.discretionary_exits===false?'off':'on'}</span><span class="pill">crash_auto ${rp?.crash_auto?'ON':'off'}</span></div>
+   ${trials.length?`<div class="kv"><b>Trials</b><span>${esc(trials.map(t=>Object.entries(t.patch).map(([k,v])=>k+'='+v).join(',')+' → '+t.trial_end).join('; '))}</span></div>`:'<div class="kv"><b>Trials</b><span>none active</span></div>'}</div>
+  <div class="card"><h2>Stops</h2>${sp?.positions?.length?sp.positions.map(p=>`<div class="kv"><b>${esc(p.ticker)}${p.human_owned?' (human)':''}</b><span>${esc(p.last)} · stop ${esc(p.resting_stop)} → <span class="${p.update?'warn':'ok'}">${esc(p.recommended_stop)}</span> (${esc(p.driver)})</span></div>`).join(''):'<small>no positions snapshot</small>'}</div>
+  <div class="card"><h2>Arena</h2><pre>${esc(arenaLines.slice(0,24).join('\n'))}</pre>${sel.length?`<pre class="ok">${esc(sel.join('\n'))}</pre>`:''}</div>
+  <div class="card"><h2>Strategist</h2><pre>${esc(strat.trim().split('\n').slice(-6).join('\n'))}</pre></div>
+  <div class="card"><h2>Memo</h2><pre>${esc(memo.split('\n').slice(0,14).join('\n'))}</pre></div>
+  <div class="card"><small>Auto-refresh 60s · <a href="#" onclick="localStorage.removeItem('mm_cfg');location.reload();return false" style="color:#8a8f98">disconnect</a> · <a href="#" onclick="Notification.requestPermission();return false" style="color:#8a8f98">enable in-app alerts</a></small></div>`;
+ }catch(e){app.innerHTML=`<div class="card"><span class="bad">${esc(e.message)}</span><br><small>check the token (Contents: read) and repo name</small></div>`;}
+ document.getElementById('clock').textContent=new Date().toLocaleTimeString();
+}
+refresh();setInterval(refresh,60000);
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
