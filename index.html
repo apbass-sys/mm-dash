@@ -29,8 +29,8 @@
 <script>
 window.onerror=function(m){var a=document.getElementById('app');if(a)a.innerHTML='<div class="card"><span class="bad">Script error: '+m+'</span></div>';};
 const K='mm_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||'null');}catch(e){cfg=null;}
-function save(){cfg={tok:document.getElementById('tok').value.trim(),repo:document.getElementById('repo').value.trim()};localStorage.setItem(K,JSON.stringify(cfg));document.getElementById('setup').style.display='none';refresh();}
-if(cfg&&cfg.tok){document.getElementById('setup').style.display='none';}
+function save(){const tok=document.getElementById('tok').value.trim(),repo=document.getElementById('repo').value.trim();if(!tok||!/^[\w.-]+\/[\w.-]+$/.test(repo)){alert('Enter the token AND the repo as owner/repo (e.g. apbass-sys/market-monitor)');return;}cfg={tok,repo};localStorage.setItem(K,JSON.stringify(cfg));document.getElementById('setup').style.display='none';refresh();}
+if(cfg&&cfg.tok&&cfg.repo){document.getElementById('setup').style.display='none';}else{cfg=null;}
 const diag={};
 async function gh(path){const r=await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}?ref=main`,{headers:{Authorization:`Bearer ${cfg.tok}`,Accept:'application/vnd.github+json'},cache:'no-store'});diag[path]=r.status;if(!r.ok)throw new Error(path+' '+r.status);const j=await r.json();if(j.content&&j.content.length)return decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));if(j.download_url){const r2=await fetch(j.download_url,{headers:{Authorization:`Bearer ${cfg.tok}`},cache:'no-store'});diag[path+' (raw)']=r2.status;if(!r2.ok)throw new Error(path+' raw '+r2.status);return await r2.text();}throw new Error(path+' empty');}
 async function jget(p){try{return JSON.parse(await gh(p));}catch(e){return null;}}
@@ -41,7 +41,7 @@ let lastTrig='';
 async function refresh(){
  if(!cfg)return;const app=document.getElementById('app');app.innerHTML='<div class="card"><small>loading…</small></div>';
  try{
-  const [cw,tr,rp,co,sp,ch,dyn,arena,memo,strat,runs]=await Promise.all([jget('history/crash_watch.json'),jget('history/triggers.json'),jget('trader/rule_params.json'),jget('history/coefficients.json'),jget('history/stop_plan.json'),jget('shadow/changes.json'),jget('shadow/arms_dynamic.json'),tget('shadow/arena_report.md'),tget('history/self_memo_latest.md'),tget('history/strategist_log.md'),tget('history/runs.jsonl')]);
+  const [cw,tr,rp,co,sp,ch,dyn,arena,memo,strat,runs,rec,evs,hl,hlc]=await Promise.all([jget('history/crash_watch.json'),jget('history/triggers.json'),jget('trader/rule_params.json'),jget('history/coefficients.json'),jget('history/stop_plan.json'),jget('shadow/changes.json'),jget('shadow/arms_dynamic.json'),tget('shadow/arena_report.md'),tget('history/self_memo_latest.md'),tget('history/strategist_log.md'),tget('history/runs.jsonl'),jget('history/recession_model.json'),tget('history/event_studies.md'),tget('history/historical_learning.md'),tget('history/historical_learning_cross.md')]);
   const lastRun=(()=>{try{const l=runs.trim().split('\n');return JSON.parse(l[l.length-1]);}catch(e){return {};}})();
   const wl=lastRun.watchlist||[];const c5=wl.filter(w=>w.stance==='bullish'&&+w.conviction>=5).map(w=>w.ticker);
   const arenaLines=arena.split('\n').filter(l=>l.startsWith('- '));const sel=arena.split('\n').filter(l=>l.includes('PROMOTABLE'));
@@ -58,11 +58,16 @@ async function refresh(){
    <div class="kv"><b>Prompt</b><span>${esc(lastRun.prompt_version||'')}</span></div><div class="kv"><b>Regime</b><span>${lastRun.regime?.risk_on?'<span class="ok">ON</span>':'<span class="bad">OFF</span>'}</span></div>
    <div class="kv"><b>5-star bullish</b><span class="acc">${esc(c5.join(', ')||'none')}</span></div><div class="kv"><b>Calls</b><span>${wl.length}</span></div></div>
   <div class="card"><h2>Learning</h2><div class="kv"><b>Graded 20d</b><span>${esc(co?.n??'?')}</span></div><div class="kv"><b>Mean 20d alpha vs SPY</b><span class="${(co?.mean_alpha||0)>0?'ok':'bad'}">${co?((co.mean_alpha*100).toFixed(2)+'%'):'?'}</span></div>
-   <div class="kv"><b>Memo</b><span>${esc(memoLine)}</span></div><div class="kv"><b>Hypotheses in test</b><span>${esc(hyps.join(', ')||'none')}</span></div></div>
+   <div class="kv"><b>Memo (internal index + external t)</b><span>${esc(memoLine)}</span></div><div class="kv"><b>Hypotheses in test</b><span>${esc(hyps.join(', ')||'none')}</span></div></div>
   <div class="card"><h2>Rules in force</h2><div class="row"><span class="pill">params ${esc(rp?.version||'default')}${rp?.frozen?' FROZEN':''}</span><span class="pill">stops T ${((rp?.stop_t??.07)*100).toFixed(0)}% / A ${((rp?.stop_a??.15)*100).toFixed(0)}%</span><span class="pill">cap ${((rp?.cap_pct??.12)*100).toFixed(0)}%</span><span class="pill">conv ≥${esc(rp?.conv_min??5)}</span><span class="pill">${esc(rp?.objective||'growth')}</span><span class="pill">kelly ${esc(rp?.kelly_fraction??.35)}</span><span class="pill">discretion ${rp?.discretionary_exits===false?'off':'on'}</span><span class="pill">crash_auto ${rp?.crash_auto?'ON':'off'}</span></div>
-   ${trials.length?`<div class="kv"><b>Trials</b><span>${esc(trials.map(t=>Object.entries(t.patch).map(([k,v])=>k+'='+v).join(',')+' → '+t.trial_end).join('; '))}</span></div>`:'<div class="kv"><b>Trials</b><span>none active</span></div>'}</div>
+   ${trials.length?`<div class="kv"><b>Trials</b><span>${esc(trials.map(t=>Object.entries(t.patch).map(([k,v])=>k+'='+(typeof v==='object'?JSON.stringify(v):v)).join(', ')+' → '+t.trial_end).join('; '))}</span></div>`:'<div class="kv"><b>Trials</b><span>none active</span></div>'}</div>
   <div class="card"><h2>Stops</h2>${sp?.positions?.length?sp.positions.map(p=>`<div class="kv"><b>${esc(p.ticker)}${p.human_owned?' (human)':''}</b><span>${esc(p.last)} · stop ${esc(p.resting_stop)} → <span class="${p.update?'warn':'ok'}">${esc(p.recommended_stop)}</span> (${esc(p.driver)})</span></div>`).join(''):'<small>no positions snapshot</small>'}</div>
   <div class="card"><h2>Arena</h2><pre>${esc(arenaLines.slice(0,24).join('\n'))}</pre>${sel.length?`<pre class="ok">${esc(sel.join('\n'))}</pre>`:''}</div>
+  <div class="card"><h2>Research</h2>
+   <div class="kv"><b>Recession p (12m, walk-forward model)</b><span class="${(rec?.models?.rec_start_12m?.current_prob||0)>=0.4?'bad':(rec?.models?.rec_start_12m?.current_prob||0)>=0.25?'warn':'ok'}">${rec?.models?.rec_start_12m?`${(rec.models.rec_start_12m.current_prob*100).toFixed(0)}% · hit ${(rec.models.rec_start_12m.hit_rate*100).toFixed(0)}% · FA ${(rec.models.rec_start_12m.false_alarm_rate*100).toFixed(0)}%`:'n/a'}</span></div>
+   <div class="kv"><b>25y learner</b><span>${esc((hl.split('\n')[1]||'').slice(0,90))}</span></div>
+   <div class="kv"><b>Cross-section</b><span>${esc((hlc.split('\n')[1]||'').slice(0,90))}</span></div>
+   <pre>${esc(evs.split('\n').filter(l=>l.startsWith('## ')&&!l.includes('0 significant')).slice(0,12).map(l=>l.replace('## ','')).join('\n'))}</pre></div>
   <div class="card"><h2>Strategist</h2><pre>${esc(strat.trim().split('\n').slice(-6).join('\n'))}</pre></div>
   <div class="card"><h2>Memo</h2><pre>${esc(memo.split('\n').slice(0,14).join('\n'))}</pre></div>
   <div class="card"><h2>Connection</h2><small>${esc(cfg.repo)} · fetches: ${esc(Object.entries(diag).map(([k,v])=>k.split('/').pop()+' '+v).join(' · '))}</small></div>
