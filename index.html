@@ -22,7 +22,7 @@
 <div id="setup" class="card">
   <h2>Connect</h2>
   <p><small>Read-only GitHub token (Contents: read, this repo only). Stored on this device only.</small></p>
-  <input id="tok" placeholder="github_pat_..."><input id="repo" value="apbass-sys/market-monitor" style="margin-top:8px">
+  <input id="tok" placeholder="github_pat_..."><input id="repo" placeholder="owner/repo" style="margin-top:8px">
   <button onclick="save()">Connect</button>
 </div>
 <div id="app"></div>
@@ -31,7 +31,8 @@ window.onerror=function(m){var a=document.getElementById('app');if(a)a.innerHTML
 const K='mm_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||'null');}catch(e){cfg=null;}
 function save(){cfg={tok:document.getElementById('tok').value.trim(),repo:document.getElementById('repo').value.trim()};localStorage.setItem(K,JSON.stringify(cfg));document.getElementById('setup').style.display='none';refresh();}
 if(cfg&&cfg.tok){document.getElementById('setup').style.display='none';}
-async function gh(path){const r=await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}?ref=main`,{headers:{Authorization:`Bearer ${cfg.tok}`,Accept:'application/vnd.github+json'},cache:'no-store'});if(!r.ok)throw new Error(path+' '+r.status);const j=await r.json();return decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));}
+const diag={};
+async function gh(path){const r=await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}?ref=main`,{headers:{Authorization:`Bearer ${cfg.tok}`,Accept:'application/vnd.github+json'},cache:'no-store'});diag[path]=r.status;if(!r.ok)throw new Error(path+' '+r.status);const j=await r.json();if(j.content&&j.content.length)return decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));if(j.download_url){const r2=await fetch(j.download_url,{headers:{Authorization:`Bearer ${cfg.tok}`},cache:'no-store'});diag[path+' (raw)']=r2.status;if(!r2.ok)throw new Error(path+' raw '+r2.status);return await r2.text();}throw new Error(path+' empty');}
 async function jget(p){try{return JSON.parse(await gh(p));}catch(e){return null;}}
 async function tget(p){try{return await gh(p);}catch(e){return '';}}
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -64,6 +65,7 @@ async function refresh(){
   <div class="card"><h2>Arena</h2><pre>${esc(arenaLines.slice(0,24).join('\n'))}</pre>${sel.length?`<pre class="ok">${esc(sel.join('\n'))}</pre>`:''}</div>
   <div class="card"><h2>Strategist</h2><pre>${esc(strat.trim().split('\n').slice(-6).join('\n'))}</pre></div>
   <div class="card"><h2>Memo</h2><pre>${esc(memo.split('\n').slice(0,14).join('\n'))}</pre></div>
+  <div class="card"><h2>Connection</h2><small>${esc(cfg.repo)} · fetches: ${esc(Object.entries(diag).map(([k,v])=>k.split('/').pop()+' '+v).join(' · '))}</small></div>
   <div class="card"><small>Auto-refresh 60s · <a href="#" onclick="localStorage.removeItem('mm_cfg');location.reload();return false" style="color:#8a8f98">disconnect</a> · <a href="#" onclick="Notification.requestPermission();return false" style="color:#8a8f98">enable in-app alerts</a></small></div>`;
  }catch(e){app.innerHTML=`<div class="card"><span class="bad">${esc(e.message)}</span><br><small>check the token (Contents: read) and repo name</small></div>`;}
  document.getElementById('clock').textContent=new Date().toLocaleTimeString();
