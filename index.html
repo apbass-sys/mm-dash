@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111">
-<link rel="manifest" href="manifest.json"><title>Market Monitor</title>
+<meta name="theme-color" content="#0f1115">
+<link rel="manifest" href="manifest.json"><title>Tallac</title>
 <style>
  :root{--bg:#0f1115;--card:#171a21;--ink:#e8e8e8;--dim:#8a8f98;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff}
  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 12px 40px}
@@ -23,7 +23,10 @@
  table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:5px 4px;border-bottom:1px solid #22262e;text-align:left;vertical-align:top}th{color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
  td.r,th.r{text-align:right;white-space:nowrap}.tick{font-weight:600}.thesis{color:var(--dim);font-size:12px;margin-top:2px}
 </style></head><body>
-<h1>Market Monitor <small id="clock"></small></h1>
+<h1><span style="display:flex;align-items:center;gap:10px">
+<svg viewBox="0 0 512 512" width="30" height="30" aria-hidden="true"><defs><linearGradient id="hg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#3fb6ff"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="#171a21"/><g transform="translate(256 258)"><polygon points="-172,104 26,-172 112,-48 196,104" fill="#2d3240"/><polygon points="-214,104 -24,-172 54,104" fill="url(#hg1)"/><rect x="-224" y="132" width="448" height="14" rx="7" fill="#e8e8e8"/></g></svg>
+<svg viewBox="0 0 440 76" width="104" height="18" aria-label="Tallac"><defs><linearGradient id="hga" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3fb6ff"/><stop offset="1" stop-color="#8b6cff"/></linearGradient></defs><g fill="none" stroke="#f3f0ea" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" transform="translate(6 3)"><path d="M 0 0 H 60 M 30 0 V 70"/><path d="M 84 70 L 114 0 L 144 70" stroke="url(#hga)"/><path d="M 170 0 V 70 H 214"/><path d="M 240 0 V 70 H 284"/><path d="M 306 70 L 336 0 L 366 70" stroke="url(#hga)"/><path d="M 416 8 A 34 34 0 1 0 416 62"/></g></svg>
+</span><small id="clock"></small></h1>
 <div id="setup" class="card">
   <h2>Connect</h2>
   <p><small>Read-only GitHub token (Contents: read, this repo only). Stored on this device only.</small></p>
@@ -58,7 +61,7 @@ async function refresh(){
   const arenaLines=arena.split('\n').filter(l=>l.startsWith('- '));const sel=arena.split('\n').filter(l=>l.includes('PROMOTABLE'));
   const memoLine=(memo.split('\n')[1]||'').replace('graded episodes (20d):','episodes');
   const trials=(ch||[]).filter(c=>c.status==='trial');const hyps=Object.entries(dyn||{}).filter(([k,v])=>v.searched&&!v.retired).map(([k])=>k);
-  const cur=JSON.stringify(tr||{});if(lastTrig&&cur!==lastTrig&&tr&&tr.actionable&&'Notification'in window&&Notification.permission==='granted'){new Notification('Market Monitor trigger',{body:(tr.new_conviction5_buys||[]).join(', ')||'actionable event'});}lastTrig=cur;
+  const cur=JSON.stringify(tr||{});if(lastTrig&&cur!==lastTrig&&tr&&tr.actionable&&'Notification'in window&&Notification.permission==='granted'){new Notification('Tallac trigger',{body:(tr.new_conviction5_buys||[]).join(', ')||'actionable event'});}lastTrig=cur;
   app.innerHTML=`
   <div class="card"><h2>Stress</h2><div class="kv"><b>State</b><span class="${cls(cw?.state)}">${esc(cw?.state||'n/a')} (${esc(cw?.composite??'?')})</span></div>
    <div class="kv"><b>Crash / Stress / Recession</b><span>${esc(cw?.scores?.crash)} / ${esc(cw?.scores?.stress)} / ${esc(cw?.scores?.recession)}</span></div>
