@@ -4,27 +4,44 @@
 <meta name="theme-color" content="#0f1115"><link rel="manifest" href="manifest.json"><title>Tallac</title>
 <style>body{margin:0;background:#0f1115;color:#e8e8e8;font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px}
 .card{background:#171a21;border-radius:12px;padding:12px 14px;margin:10px 0}input{width:100%;box-sizing:border-box;background:#0f1115;color:#e8e8e8;border:1px solid #333;border-radius:8px;padding:10px;font-size:14px;margin-top:8px}
-button{background:#58a6ff;color:#000;border:0;border-radius:8px;padding:10px 14px;font-weight:600;margin-top:8px}small{color:#8a8f98}</style></head>
+button{background:#58a6ff;color:#000;border:0;border-radius:8px;padding:10px 14px;font-weight:600;margin-top:8px}small{color:#8a8f98}.bad{color:#f85149}.ok{color:#3fb950}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98;margin:0 0 8px}</style></head>
 <body>
-<!-- Tallac loader: this page never changes. It fetches the current app (app/index.html) from the private repo with the
-     read-only token stored on this device and runs it here, so updates committed to the repo reach the phone by themselves. -->
-<div id="setup" class="card" style="display:none"><h2 style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98;margin:0 0 8px">Connect</h2>
-<small>Read-only GitHub token (Contents: read, this repo only). Stored on this device only.</small>
-<input id="tok" placeholder="github_pat_..."><input id="repo" placeholder="owner/repo" value="apbass-sys/market-monitor"><button onclick="save()">Connect</button></div>
-<div id="msg" class="card"><small>loading Tallac…</small></div>
+<!-- Tallac loader (v2). Fetches the live app (app/index.html) from the private repo with the read-only token stored on this
+     device and runs it here, so committed changes reach the phone by themselves. Settings are kept in localStorage AND a
+     cookie (iOS home-screen apps have been seen to drop localStorage). Status is printed so a failure is never silent. -->
+<div id="setup" class="card" style="display:none"><h2>Connect Tallac</h2>
+<small>Read-only GitHub token (Contents: read, market-monitor only). Stored on this device only.</small>
+<input id="tok" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" spellcheck="false"><input id="repo" placeholder="owner/repo" value="apbass-sys/market-monitor" autocapitalize="off" autocorrect="off" spellcheck="false"><button onclick="save()">Connect</button>
+<div id="err" class="bad" style="margin-top:8px"></div></div>
+<div id="msg" class="card"><small id="status">starting…</small></div>
 <script>
-const K='mm_cfg';let cfg=null;try{cfg=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}
-function save(){const tok=document.getElementById('tok').value.trim(),repo=document.getElementById('repo').value.trim();if(!tok||!/^[\w.-]+\/[\w.-]+$/.test(repo)){alert('Enter the token and the repo as owner/repo');return;}localStorage.setItem(K,JSON.stringify({tok,repo}));location.reload();}
-async function boot(){
-  if(!cfg||!cfg.tok||!cfg.repo){document.getElementById('setup').style.display='';document.getElementById('msg').style.display='none';return;}
-  try{
-    const r=await fetch(`https://api.github.com/repos/${cfg.repo}/contents/app/index.html?ref=main`,{headers:{Authorization:`Bearer ${cfg.tok}`,Accept:'application/vnd.github+json'},cache:'no-store'});
-    if(!r.ok)throw new Error('GitHub '+r.status);
-    const j=await r.json();let html;
-    if(j.content&&j.content.length){html=decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));}
-    else{const r2=await fetch(j.download_url,{headers:{Authorization:`Bearer ${cfg.tok}`},cache:'no-store'});html=await r2.text();}
-    document.open();document.write(html);document.close();
-  }catch(e){document.getElementById('msg').innerHTML=`<span style="color:#f85149">${e.message}</span><br><small>check the token (Contents: read) and repo name · <a href="#" style="color:#8a8f98" onclick="localStorage.removeItem('mm_cfg');location.reload();return false">disconnect</a></small>`;}
+const K='mm_cfg';
+function say(t,c){const s=document.getElementById('status');if(s){s.textContent=t;s.className=c||'';}}
+function load(){let c=null;try{c=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}
+ if(!c){try{const m=document.cookie.match(/(?:^|; )mm_cfg=([^;]*)/);if(m)c=JSON.parse(decodeURIComponent(m[1]));}catch(e){}}
+ return (c&&c.tok&&c.repo)?c:null;}
+function store(c){let ok=false;try{localStorage.setItem(K,JSON.stringify(c));ok=true;}catch(e){}
+ try{document.cookie='mm_cfg='+encodeURIComponent(JSON.stringify(c))+'; max-age=31536000; path=/; SameSite=Lax; Secure';ok=true;}catch(e){}
+ return ok;}
+function save(){const tok=document.getElementById('tok').value.trim(),repo=document.getElementById('repo').value.trim();const err=document.getElementById('err');
+ if(!tok){err.textContent='paste the token first';return;} if(!/^[\w.-]+\/[\w.-]+$/.test(repo)){err.textContent='repo must look like owner/repo';return;}
+ if(!store({tok,repo})){err.textContent='this browser refuses to store settings (private mode or blocked storage)';return;}
+ if(!load()){err.textContent='stored, but could not read it back - storage is being blocked on this device';return;}
+ err.textContent='';boot();}
+async function boot(){const cfg=load();
+ if(!cfg){document.getElementById('setup').style.display='';document.getElementById('msg').style.display='none';return;}
+ document.getElementById('setup').style.display='none';document.getElementById('msg').style.display='';say('connected · fetching the app from '+cfg.repo+'…');
+ try{
+  const r=await fetch('https://api.github.com/repos/'+cfg.repo+'/contents/app/index.html?ref=main',{headers:{Authorization:'Bearer '+cfg.tok,Accept:'application/vnd.github+json'},cache:'no-store'});
+  say('GitHub answered '+r.status+(r.ok?' · loading':''),r.ok?'ok':'bad');
+  if(!r.ok){throw new Error(r.status===401?'token rejected (401): re-enter it':r.status===404?'repo not found or token lacks access (404)':'GitHub error '+r.status);}
+  const j=await r.json();let html;
+  if(j.content&&j.content.length){html=decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));}
+  else{const r2=await fetch(j.download_url,{headers:{Authorization:'Bearer '+cfg.tok},cache:'no-store'});html=await r2.text();}
+  window.__mm_cfg=cfg;store(cfg);
+  document.open();document.write(html);document.close();
+ }catch(e){document.getElementById('msg').innerHTML='<span class="bad">'+e.message+'</span><br><small><a href="#" style="color:#8a8f98" onclick="localStorage.removeItem(\'mm_cfg\');document.cookie=\'mm_cfg=; max-age=0; path=/\';location.reload();return false">disconnect and try again</a></small>';}
 }
 boot();
 </script></body></html>
