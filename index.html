@@ -7,7 +7,7 @@
 button{background:#58a6ff;color:#000;border:0;border-radius:8px;padding:10px 14px;font-weight:600;margin-top:8px}small{color:#8a8f98}.bad{color:#f85149}.ok{color:#3fb950}
 h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98;margin:0 0 8px}</style></head>
 <body>
-<!-- Tallac loader (v2). Fetches the live app (app/index.html) from the private repo with the read-only token stored on this
+<!-- Tallac loader (v3: scoped, so the app's own globals never collide with it). Fetches the live app (app/index.html) from the private repo with the read-only token stored on this
      device and runs it here, so committed changes reach the phone by themselves. Settings are kept in localStorage AND a
      cookie (iOS home-screen apps have been seen to drop localStorage). Status is printed so a failure is never silent. -->
 <div id="setup" class="card" style="display:none"><h2>Connect Tallac</h2>
@@ -16,6 +16,7 @@ h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98;ma
 <div id="err" class="bad" style="margin-top:8px"></div></div>
 <div id="msg" class="card"><small id="status">starting…</small></div>
 <script>
+(function(){
 const K='mm_cfg';
 function say(t,c){const s=document.getElementById('status');if(s){s.textContent=t;s.className=c||'';}}
 function load(){let c=null;try{c=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}
@@ -43,5 +44,6 @@ async function boot(){const cfg=load();
   document.open();document.write(html);document.close();
  }catch(e){document.getElementById('msg').innerHTML='<span class="bad">'+e.message+'</span><br><small><a href="#" style="color:#8a8f98" onclick="localStorage.removeItem(\'mm_cfg\');document.cookie=\'mm_cfg=; max-age=0; path=/\';location.reload();return false">disconnect and try again</a></small>';}
 }
-boot();
+window.save=save;boot();
+})();
 </script></body></html>
