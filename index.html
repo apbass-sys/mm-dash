@@ -12,16 +12,16 @@ h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8a8f98;ma
      cookie (iOS home-screen apps have been seen to drop localStorage). Status is printed so a failure is never silent. -->
 <div id="setup" class="card" style="display:none"><h2>Connect Tallac</h2>
 <small>Read-only GitHub token (Contents: read, market-monitor only). Stored on this device only.</small>
-<input id="tok" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" spellcheck="false"><input id="repo" placeholder="owner/repo" value="apbass-sys/market-monitor" autocapitalize="off" autocorrect="off" spellcheck="false"><button onclick="save()">Connect</button>
+<input id="tok" type="password" autocomplete="off" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" spellcheck="false"><input id="repo" placeholder="owner/repo" value="apbass-sys/market-monitor" autocapitalize="off" autocorrect="off" spellcheck="false"><button onclick="save()">Connect</button>
 <div id="err" class="bad" style="margin-top:8px"></div></div>
 <div id="msg" class="card"><small id="status">starting…</small></div>
 <script>
 (function(){
-const K='mm_cfg';
+const K='mm_cfg';let booting=false;
 function say(t,c){const s=document.getElementById('status');if(s){s.textContent=t;s.className=c||'';}}
 function load(){let c=null;try{c=JSON.parse(localStorage.getItem(K)||'null');}catch(e){}
  if(!c){try{const m=document.cookie.match(/(?:^|; )mm_cfg=([^;]*)/);if(m)c=JSON.parse(decodeURIComponent(m[1]));}catch(e){}}
- return (c&&c.tok&&c.repo)?c:null;}
+ return (c&&typeof c.tok==='string'&&c.tok&&typeof c.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(c.repo))?c:null;}
 function store(c){let ok=false;try{localStorage.setItem(K,JSON.stringify(c));ok=true;}catch(e){}
  try{document.cookie='mm_cfg='+encodeURIComponent(JSON.stringify(c))+'; max-age=31536000; path=/; SameSite=Lax; Secure';ok=true;}catch(e){}
  return ok;}
@@ -30,19 +30,31 @@ function save(){const tok=document.getElementById('tok').value.trim(),repo=docum
  if(!store({tok,repo})){err.textContent='this browser refuses to store settings (private mode or blocked storage)';return;}
  if(!load()){err.textContent='stored, but could not read it back - storage is being blocked on this device';return;}
  err.textContent='';boot();}
-async function boot(){const cfg=load();
+async function boot(){if(booting)return;const cfg=load();
  if(!cfg){document.getElementById('setup').style.display='';document.getElementById('msg').style.display='none';return;}
- document.getElementById('setup').style.display='none';document.getElementById('msg').style.display='';say('connected · fetching the app from '+cfg.repo+'…');
+ booting=true;document.getElementById('setup').style.display='none';document.getElementById('msg').style.display='';say('connected · fetching the app from '+cfg.repo+'…');
  try{
-  const r=await fetch('https://api.github.com/repos/'+cfg.repo+'/contents/app/index.html?ref=main',{headers:{Authorization:'Bearer '+cfg.tok,Accept:'application/vnd.github+json'},cache:'no-store'});
+  const headers={Authorization:'Bearer '+cfg.tok,Accept:'application/vnd.github+json'};
+  const base='https://api.github.com/repos/'+cfg.repo;
+  const revision=await fetch(base+'/commits/main',{headers,cache:'no-store',signal:AbortSignal.timeout(30000)});
+  if(!revision.ok)throw new Error('Unable to resolve app revision: GitHub '+revision.status);
+  const commit=await revision.json();if(!/^[a-f0-9]{40}$/.test(commit.sha||''))throw new Error('Invalid app revision');
+  const url=base+'/contents/app/index.html?ref='+commit.sha;
+  const r=await fetch(url,{headers,cache:'no-store',signal:AbortSignal.timeout(30000)});
   say('GitHub answered '+r.status+(r.ok?' · loading':''),r.ok?'ok':'bad');
   if(!r.ok){throw new Error(r.status===401?'token rejected (401): re-enter it':r.status===404?'repo not found or token lacks access (404)':'GitHub error '+r.status);}
   const j=await r.json();let html;
-  if(j.content&&j.content.length){html=decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));}
-  else{const r2=await fetch(j.download_url,{headers:{Authorization:'Bearer '+cfg.tok},cache:'no-store'});html=await r2.text();}
+  if(j.content&&j.content.length){html=new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\s/g,'')),c=>c.charCodeAt(0)));}
+  else{const r2=await fetch(url,{headers:{Authorization:'Bearer '+cfg.tok,Accept:'application/vnd.github.raw+json'},cache:'no-store',signal:AbortSignal.timeout(30000)});if(!r2.ok)throw new Error('App download failed: GitHub '+r2.status);html=await r2.text();}
+  if(!/<html[\s>]/i.test(html)||!html.includes('class RepositorySnapshot'))throw new Error('Incomplete app response; retry loading');
   window.__mm_cfg=cfg;store(cfg);
   document.open();document.write(html);document.close();
- }catch(e){document.getElementById('msg').innerHTML='<span class="bad">'+e.message+'</span><br><small><a href="#" style="color:#8a8f98" onclick="localStorage.removeItem(\'mm_cfg\');document.cookie=\'mm_cfg=; max-age=0; path=/\';location.reload();return false">disconnect and try again</a></small>';}
+ }catch(e){const message=document.getElementById('msg');message.replaceChildren();
+  const error=document.createElement('p');error.className='bad';error.textContent=e.message;message.appendChild(error);
+  const retry=document.createElement('button');retry.textContent='Retry loading';retry.onclick=()=>boot();message.appendChild(retry);
+  const reset=document.createElement('button');reset.textContent='Reconnect';reset.style.marginLeft='8px';reset.onclick=()=>{localStorage.removeItem(K);document.cookie='mm_cfg=; max-age=0; path=/';location.reload();};message.appendChild(reset);
+ }finally{booting=false;}
+
 }
 window.save=save;boot();
 })();
